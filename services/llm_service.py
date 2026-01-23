@@ -53,7 +53,7 @@ class LLMService:
             "5) responde siempre en español."
             "Solo responde a las peticiones que tienen que ver con financias o relacionado al sistema "
             "Billease (datos de la base de datos, reportes, usuarios, facturas, nota de ventas, cotizaciones), en caso "
-            "de que el usuario pregunté algo de otro tema que no corresponda a lo que tengas que responder, dile al usuario esto: " \
+            "de que el usuario pregunté algo de otro tema que no corresponda a lo que tengas que responder, dile al usuario esto: "
             "'Lo siento, soy un asistente financiero orientado al sistema Billease, disculpa pero no puedo ayudarte con lo que me dices.'"
         )
 
@@ -112,13 +112,18 @@ class LLMService:
             "y amable en español para el usuario. Si los datos vienen en JSON, "
             "resúmelos de forma entendible (por ejemplo, contando registros, "
             "listando nombres importantes, etc.)."
+            "Todas las herramientas que puedes usar están relacionadas con el sistema Billease. Y solo son para consultar datos del sistema Billease."
+            "Si el usuario te pide algo que implique crear/editar/borrar datos de la base de datos, responde con el siguiente mensaje: "
+            "'Disculpa, no tengo permisos para realizar ese tipo de acción, por ahora no puedo ayudarte con lo que me pides, pero puedo darte otro tipo de información.'"
             "Solo responde a las peticiones que tienen que ver con financias o relacionado al sistema "
             "Billease (datos de la base de datos, reportes, usuarios, facturas, nota de ventas, cotizaciones), en caso "
-            "de que el usuario pregunté algo de otro tema que no corresponda a lo que tengas que responder, dile al usuario esto: " 
+            "de que el usuario pregunté algo de otro tema que no corresponda a lo que tengas que responder, dile al usuario esto: "
             "'Lo siento, soy un asistente financiero orientado al sistema Billease, disculpa pero no puedo ayudarte con lo que me dices.'"
         )
 
-    def _build_openai_tools(self, mcp_tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _build_openai_tools(
+        self, mcp_tools: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """Convierte la descripción de tools MCP en tools de OpenAI.
 
         Espera que cada tool MCP tenga al menos: name, description y, si es
@@ -210,26 +215,30 @@ class LLMService:
 
                 # Si el modelo ya devuelve texto sin tool_calls, terminamos
                 if not getattr(message, "tool_calls", None):
-                    final_answer = message.content or "Lo siento, no pude generar una respuesta."
+                    final_answer = (
+                        message.content or "Lo siento, no pude generar una respuesta."
+                    )
                     print(f"✅ Respuesta final generada: {final_answer[:120]}...")
                     return final_answer
 
                 # Registrar el mensaje del asistente que solicita tools
-                messages.append({
-                    "role": "assistant",
-                    "content": message.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
-                            },
-                        }
-                        for tc in message.tool_calls or []
-                    ],
-                })
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": message.content or "",
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                },
+                            }
+                            for tc in message.tool_calls or []
+                        ],
+                    }
+                )
 
                 # Ejecutar cada tool requerida contra el MCP
                 for tool_call in message.tool_calls or []:
@@ -264,12 +273,14 @@ class LLMService:
                             tool_result = str(tool_result)
 
                     # Añadir mensaje de tool a la conversación
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                        "content": tool_result,
-                    })
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_name,
+                            "content": tool_result,
+                        }
+                    )
 
                 # Volver a llamar al modelo con los resultados de las tools
                 print("🔁 Enviando resultados de tools de vuelta al modelo...")
