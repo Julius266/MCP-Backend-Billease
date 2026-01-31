@@ -2,7 +2,10 @@ from fastapi import FastAPI, Request, Form, HTTPException
 from services.mcp_client import MCPClient
 from services.llm_service import LLMService
 from services.whatsapp import WhatsAppService
+from services.metrics_logger import MetricsLogger
 import os
+from datetime import datetime
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,6 +15,7 @@ app = FastAPI()
 mcp = MCPClient()
 llm = LLMService()
 whatsapp = WhatsAppService()
+metrics = MetricsLogger()
 
 
 @app.post("/webhook/whatsapp")
@@ -28,6 +32,10 @@ async def whatsapp_webhook(
     3. Procesamos con MCP + LLM
     4. Enviamos respuesta por WhatsApp
     """
+    # Capturar tiempo inicial y timestamp
+    start_time = time.time()
+    message_timestamp = datetime.now()
+    
     # Twilio envía el número con formato "whatsapp:+521234567890"
     user_number = From.replace("whatsapp:", "")
     user_message = Body
@@ -39,12 +47,34 @@ async def whatsapp_webhook(
         # Nuevo flujo: dejamos que el modelo decida si usar MCP o no
         # usando OpenAI tools que internamente llaman al servidor MCP.
         print("🤖 Procesando mensaje a través de OpenAI con tools/MCP...")
-        response = await llm.chat_with_mcp(user_message, mcp)
+        
+        # Tiempo antes de procesar con LLM
+        llm_start_time = time.time()
+        
+        # Procesar con LLM y capturar herramientas usadas
+        response, tools_used = await llm.chat_with_mcp(user_message, mcp)
+        
+        # Tiempo de procesamiento del LLM
+        processing_time = time.time() - llm_start_time
         
         # Enviar la respuesta por WhatsApp
         print(f"📤 Enviando respuesta a {user_number}")
         whatsapp.send_message(user_number, response)
         print(f"✅ Respuesta enviada correctamente\n")
+        
+        # Calcular tiempo total
+        total_time = time.time() - start_time
+        
+        # Registrar métricas (solo si está habilitado)
+        metrics.log_message(
+            phone_number=user_number,
+            message_in=user_message,
+            message_out=response,
+            mcp_tools_used=tools_used,
+            processing_time=processing_time,
+            total_time=total_time,
+            timestamp=message_timestamp
+        )
         
         return {"status": "success"}
     
@@ -52,6 +82,19 @@ async def whatsapp_webhook(
         error_msg = f"Lo siento, ocurrió un error al procesar tu solicitud. Por favor intenta de nuevo."
         print(f"❌ Error procesando mensaje: {str(e)}")
         whatsapp.send_message(user_number, error_msg)
+        
+        # Registrar error en métricas también (tiempo total hasta el error)
+        total_time = time.time() - start_time
+        metrics.log_message(
+            phone_number=user_number,
+            message_in=user_message,
+            message_out=f"ERROR: {error_msg}",
+            mcp_tools_used=[],
+            processing_time=0,
+            total_time=total_time,
+            timestamp=message_timestamp
+        )
+        
         return {"status": "error", "message": str(e)}
 
 

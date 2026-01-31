@@ -159,7 +159,7 @@ class LLMService:
 
         return openai_tools
 
-    async def chat_with_mcp(self, user_message: str, mcp_client: Any) -> str:
+    async def chat_with_mcp(self, user_message: str, mcp_client: Any) -> tuple[str, List[str]]:
         """Flujo completo: usuario → OpenAI (tools) → MCP → respuesta.
 
         - Obtiene la lista de tools MCP.
@@ -168,7 +168,13 @@ class LLMService:
         - Cuando el modelo pide una tool, se ejecuta realmente contra el MCP
           vía `mcp_client.call_tool` y luego se sigue el loop hasta que el
           modelo devuelva una respuesta final en lenguaje natural.
+          
+        Returns:
+            tuple[str, List[str]]: (respuesta_final, lista_de_herramientas_usadas)
         """
+        
+        # Lista para trackear herramientas MCP usadas
+        tools_used: List[str] = []
 
         # 1) Descubrir tools MCP
         try:
@@ -177,7 +183,8 @@ class LLMService:
         except Exception as e:
             print(f"⚠️ No se pudieron listar tools MCP: {e}")
             # Si falla, degradar al modo simple sin tools.
-            return self.generate_response(user_message)
+            response = self.generate_response(user_message)
+            return (response, tools_used)
 
         openai_tools = self._build_openai_tools(mcp_tools)
 
@@ -219,7 +226,7 @@ class LLMService:
                         message.content or "Lo siento, no pude generar una respuesta."
                     )
                     print(f"✅ Respuesta final generada: {final_answer[:120]}...")
-                    return final_answer
+                    return (final_answer, tools_used)
 
                 # Registrar el mensaje del asistente que solicita tools
                 messages.append(
@@ -244,6 +251,10 @@ class LLMService:
                 for tool_call in message.tool_calls or []:
                     tool_name = tool_call.function.name
                     raw_args = tool_call.function.arguments or "{}"
+                    
+                    # Agregar herramienta a la lista de herramientas usadas
+                    if tool_name not in tools_used:
+                        tools_used.append(tool_name)
 
                     try:
                         args = json.loads(raw_args) if raw_args else {}
@@ -307,5 +318,6 @@ class LLMService:
             print(f"❌ Error en flujo con tools/MCP: {e}")
             return (
                 "Lo siento, hubo un problema al consultar los datos internos. "
-                "Por favor intenta de nuevo más tarde."
+                "Por favor intenta de nuevo más tarde.",
+                tools_used
             )
