@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from openai.types.chat import ChatCompletionAssistantMessageParam
 
 load_dotenv()
 
@@ -67,7 +68,7 @@ class LLMService:
         else:
             user_prompt = user_message
 
-        messages = [
+        messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
@@ -103,23 +104,14 @@ class LLMService:
         datos reales de Billease a través del servidor MCP.
         """
 
-        return (
-            "Eres un asistente virtual de Billease, una plataforma de gestión "
-            "empresarial. Puedes utilizar herramientas para consultar datos en "
-            "tiempo real (ventas, usuarios, reportes, etc.). "
-            "Cuando sea útil, llama a la herramienta adecuada con los parámetros "
-            "correctos, espera la respuesta y luego elabora una explicación clara "
-            "y amable en español para el usuario. Si los datos vienen en JSON, "
-            "resúmelos de forma entendible (por ejemplo, contando registros, "
-            "listando nombres importantes, etc.)."
-            "Todas las herramientas que puedes usar están relacionadas con el sistema Billease. Y solo son para consultar datos del sistema Billease."
-            "Si el usuario te pide algo que implique crear/editar/borrar datos de la base de datos, responde con el siguiente mensaje: "
-            "'Disculpa, no tengo permisos para realizar ese tipo de acción, por ahora no puedo ayudarte con lo que me pides, pero puedo darte otro tipo de información.'"
-            "Solo responde a las peticiones que tienen que ver con financias o relacionado al sistema "
-            "Billease (datos de la base de datos, reportes, usuarios, facturas, nota de ventas, cotizaciones), en caso "
-            "de que el usuario pregunté algo de otro tema que no corresponda a lo que tengas que responder, dile al usuario esto: "
-            "'Lo siento, soy un asistente financiero orientado al sistema Billease, disculpa pero no puedo ayudarte con lo que me dices.'"
-        )
+        return """
+            Eres un asistente virtual de Billease, una plataforma de gestión empresarial. 
+            Puedes utilizar herramientas para consultar datos en tiempo real (ventas, usuarios, reportes, etc.). 
+            Cuando sea útil, llama a la herramienta adecuada con los parámetros correctos, espera la respuesta y luego elabora una explicación clara y amable en español para el usuario. Si los datos vienen en JSON, resúmelos de forma entendible (por ejemplo, contando registros, listando nombres importantes, etc.).
+            Todas las herramientas que puedes usar están relacionadas con el sistema Billease. Y solo son para consultar datos del sistema Billease.
+            Si el usuario te pide algo que implique crear/editar/borrar datos de la base de datos, responde con el siguiente mensaje: 'Disculpa, no tengo permisos para realizar ese tipo de acción, por ahora no puedo ayudarte con lo que me pides, pero puedo darte otro tipo de información.'
+            Solo responde a las peticiones que tienen que ver con financias o relacionado al sistema Billease (datos de la base de datos, reportes, usuarios, facturas, nota de ventas, cotizaciones), en caso de que el usuario pregunté algo de otro tema que no corresponda a lo que tengas que responder, dile al usuario esto: 'Lo siento, soy un asistente financiero orientado al sistema Billease, disculpa pero no puedo ayudarte con lo que me dices.'
+        """
 
     def _build_openai_tools(
         self, mcp_tools: List[Dict[str, Any]]
@@ -159,7 +151,9 @@ class LLMService:
 
         return openai_tools
 
-    async def chat_with_mcp(self, user_message: str, mcp_client: Any) -> tuple[str, List[str]]:
+    async def chat_with_mcp(
+        self, user_message: str, mcp_client: Any
+    ) -> tuple[str, List[str]]:
         """Flujo completo: usuario → OpenAI (tools) → MCP → respuesta.
 
         - Obtiene la lista de tools MCP.
@@ -168,11 +162,11 @@ class LLMService:
         - Cuando el modelo pide una tool, se ejecuta realmente contra el MCP
           vía `mcp_client.call_tool` y luego se sigue el loop hasta que el
           modelo devuelva una respuesta final en lenguaje natural.
-          
+
         Returns:
             tuple[str, List[str]]: (respuesta_final, lista_de_herramientas_usadas)
         """
-        
+
         # Lista para trackear herramientas MCP usadas
         tools_used: List[str] = []
 
@@ -251,7 +245,7 @@ class LLMService:
                 for tool_call in message.tool_calls or []:
                     tool_name = tool_call.function.name
                     raw_args = tool_call.function.arguments or "{}"
-                    
+
                     # Agregar herramienta a la lista de herramientas usadas
                     if tool_name not in tools_used:
                         tools_used.append(tool_name)
@@ -319,5 +313,5 @@ class LLMService:
             return (
                 "Lo siento, hubo un problema al consultar los datos internos. "
                 "Por favor intenta de nuevo más tarde.",
-                tools_used
+                tools_used,
             )
