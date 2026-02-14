@@ -13,12 +13,26 @@ from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from openai import OpenAI
-from openai.types.chat import ChatCompletionAssistantMessageParam
+from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
 load_dotenv()
 
 
 class LLMService:
+
+    system_message_base = """
+        Eres un asistente virtual inteligente de Billease, una plataforma de gestión empresarial. Tu trabajo es:
+        1) responder preguntas sobre datos de la empresa de forma clara y concisa,
+        2) interpretar datos técnicos y presentarlos de manera amigable usando recursos como emojis, negritas o listas para hacer la información más digerible,
+        3) ser profesional pero cercano en tu tono,
+        4) si los datos están en formato JSON o tabla, conviértelos a texto legible,
+        5) si el usuario pregunta por otro sistema ERP que no sea Billease, respondele con: 'Lo siento, soy un asistente financiero orientado al sistema Billease, disculpa pero no puedo ayudarte con lo que me dices.',
+        6) responde siempre en español.
+        Si el usuario pide una opinión financiera crítica en su negocio respondele con: 'Lo siento, no tengo la capacidad de dar opiniones financieras críticas, pero puedo ayudarte a interpretar los datos que tengas para que puedas tomar tus propias decisiones informadas, igualmente comunicate con un asesor financiero profesional para la toma de decisiones importantes en tu negocio.'
+        Solo responde a las peticiones que tienen que ver con finanzas o relacionado al sistema Billease (datos de la base de datos, usuarios, facturas, sucursales, reportes [ventas, compras, utilidad y cartera]).
+        En caso de que el usuario pregunte algo de otro tema que no corresponda a lo que tengas que responder, dile al usuario esto: 'Lo siento, soy un asistente financiero orientado al sistema Billease, disculpa pero no puedo ayudarte con lo que me dices.'
+    """
+
     def __init__(self):
         """Servicio de LLM usando OpenAI GPT.
 
@@ -44,19 +58,7 @@ class LLMService:
         Este método NO usa tools; es el flujo "clásico" MCP → contexto → LLM.
         """
 
-        system_prompt = (
-            "Eres un asistente virtual inteligente de Billease, una plataforma de "
-            "gestión empresarial. Tu trabajo es: "
-            "1) responder preguntas sobre datos de la empresa de forma clara y concisa, "
-            "2) interpretar datos técnicos y presentarlos de manera amigable, "
-            "3) ser profesional pero cercano en tu tono, "
-            "4) si los datos están en formato JSON o tabla, conviértelos a texto legible, "
-            "5) responde siempre en español."
-            "Solo responde a las peticiones que tienen que ver con financias o relacionado al sistema "
-            "Billease (datos de la base de datos, reportes, usuarios, facturas, nota de ventas, cotizaciones), en caso "
-            "de que el usuario pregunté algo de otro tema que no corresponda a lo que tengas que responder, dile al usuario esto: "
-            "'Lo siento, soy un asistente financiero orientado al sistema Billease, disculpa pero no puedo ayudarte con lo que me dices.'"
-        )
+        system_prompt = self.system_message_base
 
         if context:
             user_prompt = (
@@ -68,7 +70,7 @@ class LLMService:
         else:
             user_prompt = user_message
 
-        messages: List[Dict[str, Any]] = [
+        messages: List[ChatCompletionMessageParam] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
@@ -84,7 +86,9 @@ class LLMService:
             )
 
             answer = response.choices[0].message.content
-            print(f"✅ Respuesta generada: {answer[:120]}...")
+            if answer:
+                print(f"✅ Respuesta generada: {answer[:120]}...")
+
             return answer or "Lo siento, no pude generar una respuesta."
 
         except Exception as e:
@@ -104,25 +108,26 @@ class LLMService:
         datos reales de Billease a través del servidor MCP.
         """
 
-        return """
-            Eres un asistente virtual de Billease, una plataforma de gestión empresarial. 
-            Puedes utilizar herramientas para consultar datos en tiempo real (ventas, usuarios, reportes, etc.). 
-            Cuando sea útil, llama a la herramienta adecuada con los parámetros correctos, espera la respuesta y luego elabora una explicación clara y amable en español para el usuario. Si los datos vienen en JSON, resúmelos de forma entendible (por ejemplo, contando registros, listando nombres importantes, etc.).
-            Todas las herramientas que puedes usar están relacionadas con el sistema Billease. Y solo son para consultar datos del sistema Billease.
-            Si el usuario te pide algo que implique crear/editar/borrar datos de la base de datos, responde con el siguiente mensaje: 'Disculpa, no tengo permisos para realizar ese tipo de acción, por ahora no puedo ayudarte con lo que me pides, pero puedo darte otro tipo de información.'
-            Solo responde a las peticiones que tienen que ver con financias o relacionado al sistema Billease (datos de la base de datos, reportes, usuarios, facturas, nota de ventas, cotizaciones), en caso de que el usuario pregunté algo de otro tema que no corresponda a lo que tengas que responder, dile al usuario esto: 'Lo siento, soy un asistente financiero orientado al sistema Billease, disculpa pero no puedo ayudarte con lo que me dices.'
-        """
+        return (
+            self.system_message_base
+            + """
+                Puedes utilizar herramientas para consultar datos en tiempo real (ventas, usuarios, reportes, etc.). 
+                Cuando sea útil, llama a la herramienta adecuada con los parámetros correctos, espera la respuesta y luego elabora una explicación clara y amable en español para el usuario. Si los datos vienen en JSON, resúmelos de forma entendible (por ejemplo, contando registros, listando nombres importantes, etc.).
+                Todas las herramientas que puedes usar están relacionadas con el sistema Billease. Y solo son para consultar datos del sistema Billease.
+                Si el usuario te pide algo que implique crear/editar/borrar datos de la base de datos, responde con el siguiente mensaje: 'Disculpa, no tengo permisos para realizar ese tipo de acción, por ahora no puedo ayudarte con lo que me pides, pero puedo ayudarte con otro tipo de información.'
+            """
+        )
 
     def _build_openai_tools(
         self, mcp_tools: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+    ) -> List[ChatCompletionToolParam]:
         """Convierte la descripción de tools MCP en tools de OpenAI.
 
         Espera que cada tool MCP tenga al menos: name, description y, si es
         posible, inputSchema con la definición de parámetros.
         """
 
-        openai_tools: List[Dict[str, Any]] = []
+        openai_tools: List[ChatCompletionToolParam] = []
 
         for tool in mcp_tools:
             name = tool.get("name")
@@ -180,9 +185,11 @@ class LLMService:
             response = self.generate_response(user_message)
             return (response, tools_used)
 
-        openai_tools = self._build_openai_tools(mcp_tools)
+        openai_tools: List[ChatCompletionToolParam] = self._build_openai_tools(
+            mcp_tools
+        )
 
-        messages: List[Dict[str, Any]] = [
+        messages: List[ChatCompletionMessageParam] = [
             {"role": "system", "content": self._build_system_prompt()},
             {"role": "user", "content": user_message},
         ]
@@ -282,7 +289,6 @@ class LLMService:
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "name": tool_name,
                             "content": tool_result,
                         }
                     )
