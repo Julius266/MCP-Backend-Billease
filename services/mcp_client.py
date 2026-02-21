@@ -75,7 +75,9 @@ class MCPClient:
             print(f"Error listando herramientas MCP (python-sdk): {e}")
             return []
 
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any] | None = None) -> Any:
+    async def call_tool(
+        self, tool_name: str, arguments: Dict[str, Any] | None = None
+    ) -> Any:
         """Llama a una herramienta MCP por nombre usando el SDK oficial.
 
         Args:
@@ -113,3 +115,15 @@ class MCPClient:
 
         except Exception as e:
             raise Exception(f"Error llamando a herramienta MCP '{tool_name}': {e}")
+
+    async def close(self) -> None:
+        """Cierra la sesión del ClientSessionGroup limpiamente."""
+        if self._group is not None and self._connected:
+            try:
+                await self._group.__aexit__(None, None, None)
+                print("✅ ClientSessionGroup cerrado correctamente")
+            except Exception as e:
+                print(f"⚠️ Error cerrando ClientSessionGroup: {e}")
+            finally:
+                self._group = None
+                self._connected = False
